@@ -116,8 +116,10 @@ def change_single_pkl(input_pkl_filename, output_pkl_filename, is_debug_print=Fa
     print(print_str)
 
 
-def main(input_pkl, output_pkl, is_debug_print=False):
+def main(input_pkl, output_pkl, is_overwrite=False, is_debug_print=False):
     s_time = time.perf_counter()
+
+    default_suffix = "_standard."
 
     is_exist_input = os.path.exists(input_pkl)
     msg = f"Not found file or dir {input_pkl}"
@@ -125,15 +127,26 @@ def main(input_pkl, output_pkl, is_debug_print=False):
 
     is_input_file = my_is_file(input_pkl, debug=is_debug_print)
     is_output_file = my_is_file(output_pkl, debug=is_debug_print)
-    is_same_dir = False
     msg = f"should match input dir type of {input_pkl}, "
     msg += f"output dir type of {output_pkl}"
-    assert is_input_file == is_output_file, msg
+    assert is_input_file or not is_output_file, msg
 
     if not is_output_file:
         os.makedirs(output_pkl, exist_ok=True)
-    if not is_input_file:
-        is_same_dir = input_pkl == output_pkl
+    is_same_dir = input_pkl == output_pkl
+    if is_input_file:
+        tmp_input_abs_path = os.path.abspath(input_pkl)
+        input_dir = os.path.dirname(tmp_input_abs_path)
+        output_dir = os.path.abspath(output_pkl)
+        if is_output_file:
+            output_dir = os.path.dirname(output_dir)
+        is_same_dir = input_dir == output_dir
+    if is_same_dir and is_output_file and not is_overwrite:
+        output_basename = os.path.basename(output_pkl)
+        tmp_output_dir = os.path.dirname(output_pkl)
+        output_basename_without_ext, ext = output_basename.split(".", 1)
+        tmp_output_filename = output_basename_without_ext + default_suffix + ext
+        output_pkl = os.path.join(tmp_output_dir, tmp_output_filename)
 
     input_files = [input_pkl]
     if not is_input_file:
@@ -144,7 +157,7 @@ def main(input_pkl, output_pkl, is_debug_print=False):
             input_basename = os.path.basename(input_file)
             if is_same_dir:
                 basename_without_ext, ext = input_basename.split(".", 1)
-                input_basename = basename_without_ext + "_standard." + ext
+                input_basename = basename_without_ext + default_suffix + ext
             output_pkl_filename = os.path.join(output_pkl, input_basename)
         change_single_pkl(input_file, output_pkl_filename, is_debug_print)
 
@@ -158,6 +171,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_pkl", default="./pretrain.pkl", type=str)
     parser.add_argument("--output_pkl", default="./pretrain_after.pkl", type=str)
+    parser.add_argument("--overwrite_pklfile", action="store_true")
     parser.add_argument("--debug_print", action="store_true")
     args = parser.parse_args()
-    main(args.input_pkl, args.output_pkl, args.debug_print)
+    main(args.input_pkl, args.output_pkl, args.overwrite_pklfile, args.debug_print)
