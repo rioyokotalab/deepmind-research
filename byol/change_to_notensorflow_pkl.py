@@ -122,13 +122,13 @@ def main(input_pkl, output_pkl, is_overwrite=False, is_debug_print=False):
     default_suffix = "_standard."
 
     is_exist_input = os.path.exists(input_pkl)
-    msg = f"Not found file or dir {input_pkl}"
+    msg = f'Not found file or dir: "{input_pkl}"'
     assert is_exist_input, msg
 
     is_input_file = my_is_file(input_pkl, debug=is_debug_print)
     is_output_file = my_is_file(output_pkl, debug=is_debug_print)
-    msg = f"should match input dir type of {input_pkl}, "
-    msg += f"output dir type of {output_pkl}"
+    msg = "should match input dir type and output dir type: "
+    msg += f"input path: {input_pkl} output path: {output_pkl}"
     assert is_input_file or not is_output_file, msg
 
     if not is_output_file:
