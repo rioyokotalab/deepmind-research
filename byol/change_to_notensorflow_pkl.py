@@ -1,11 +1,15 @@
 import argparse
+import glob
 import pickle
 import os
+import time
 
 from haiku.data_structures import to_mutable_dict
 
 
-def debug_print(data):
+def debug_print(data, head_msg=""):
+    if head_msg != "":
+        print(head_msg)
     print(type(data))
     print(data.keys())
     for k, v in data.items():
@@ -33,52 +37,121 @@ def debug_print(data):
                 # ScaleByLarsState is subclass of namedtuple
                 tmp_attr_dict = tmp_attr._asdict()
                 print(head2, ak, type(tmp_attr_dict), tmp_attr_dict.keys())
+        if type(v) == dict:
+            for lk, lv in v.items():
+                head2 = "\t\t 2nd for dict"
+                print(head2, lk, type(lv))
+                if type(lv) == list:
+                    head3 = "\t\t\t 3rd for list"
+                    for li in lv:
+                        print(head3, lk, type(li))
 
 
-def change_to_dict(haiku_dict):
+def my_is_file(filename, debug=False):
+    splits = filename.split(".", 1)
+    is_file = len(splits) > 1
+    if debug:
+        print(splits)
+        if is_file:
+            basename_without_ext, ext = splits
+            print(basename_without_ext, ext)
+    return is_file
+
+
+def change_haiku_to_dict(haiku_dict):
     haiku_dict = to_mutable_dict(haiku_dict)
     for k, v in haiku_dict.items():
         if hasattr(v, "items") and not isinstance(v, dict):
-            haiku_dict[k] = change_to_dict(v)
+            haiku_dict[k] = change_haiku_to_dict(v)
     return haiku_dict
 
 
 def change_state_dict(byol_model_state_dict):
-    out = {}
-    for k, v in byol_model_state_dict.items():
-        is_haiku = hasattr(v, "items") and not isinstance(v, dict)
-        is_namedtuple = hasattr(v, "_asdict")
-        out[k] = v
-        if is_haiku:
-            out[k] = change_to_dict(v)
-        if is_namedtuple:
-            tmp_dict = v._asdict()
-            out[k] = change_state_dict(tmp_dict)
-    return out
+    is_dict = isinstance(byol_model_state_dict, dict)
+    is_haiku = hasattr(byol_model_state_dict, "items") and not is_dict
+    is_namedtuple = hasattr(byol_model_state_dict, "_asdict")
+    is_list = isinstance(byol_model_state_dict, list)
+    is_tuple = isinstance(byol_model_state_dict, tuple)
+    if is_haiku:
+        return change_haiku_to_dict(byol_model_state_dict)
+    if is_namedtuple:
+        tmp_dict = byol_model_state_dict._asdict()
+        return change_state_dict(tmp_dict)
+    if is_list or is_tuple:
+        tmp_list = []
+        for v in byol_model_state_dict:
+            tmp = change_state_dict(v)
+            tmp_list.append(tmp)
+        return tmp_list
+    if is_dict:
+        for k, v in byol_model_state_dict.items():
+            byol_model_state_dict[k] = change_state_dict(v)
+    return byol_model_state_dict
 
 
-def main(input_pkl_filename, output_pkl_filename, is_debug_print=False):
+def change_single_pkl(input_pkl_filename, output_pkl_filename, is_debug_print=False):
+    s_time = time.perf_counter()
+
     input_pkl_abs_path = os.path.abspath(input_pkl_filename)
-    print("load", input_pkl_abs_path)
+    print("load", input_pkl_filename)
     with open(input_pkl_abs_path, "rb") as f:
         data = pickle.load(f)
     if is_debug_print:
-        debug_print(data)
-    data_keys = list(data.keys())
-    byol_state_namedtuple = data[data_keys[0]]
-    byol_model_state_dict = byol_state_namedtuple._asdict()
-    model_state_dict = change_state_dict(byol_model_state_dict)
-    data[data_keys[0]] = model_state_dict
-    print(type(model_state_dict), model_state_dict.keys())
-    for k, v in data.items():
-        print(k, type(v))
+        debug_print(data, head_msg="before change data")
+    data = change_state_dict(data)
+    model_state_dict = data[list(data.keys())[0]]
     if is_debug_print:
-        debug_print(model_state_dict)
+        print(type(model_state_dict), model_state_dict.keys())
+        debug_print(data, head_msg="after change data")
+        debug_print(model_state_dict, head_msg="model state dict print")
 
     output_pkl_abs_path = os.path.abspath(output_pkl_filename)
-    print("save to", output_pkl_abs_path)
+    print("save to", output_pkl_filename)
     with open(output_pkl_abs_path, "wb") as f:
         pickle.dump(data, f)
+
+    e_time = time.perf_counter()
+    single_exec_time = e_time - s_time
+    print_str = f"process for {input_pkl_filename} exec time: {single_exec_time}s"
+    print(print_str)
+
+
+def main(input_pkl, output_pkl, is_debug_print=False):
+    s_time = time.perf_counter()
+
+    is_exist_input = os.path.exists(input_pkl)
+    msg = f"Not found file or dir {input_pkl}"
+    assert is_exist_input, msg
+
+    is_input_file = my_is_file(input_pkl, debug=is_debug_print)
+    is_output_file = my_is_file(output_pkl, debug=is_debug_print)
+    is_same_dir = False
+    msg = f"should match input dir type of {input_pkl}, "
+    msg += f"output dir type of {output_pkl}"
+    assert is_input_file == is_output_file, msg
+
+    if not is_output_file:
+        os.makedirs(output_pkl, exist_ok=True)
+    if not is_input_file:
+        is_same_dir = input_pkl == output_pkl
+
+    input_files = [input_pkl]
+    if not is_input_file:
+        input_files = sorted(glob.glob(os.path.join(input_pkl, "*.pkl")))
+    for input_file in input_files:
+        output_pkl_filename = output_pkl
+        if not is_output_file:
+            input_basename = os.path.basename(input_file)
+            if is_same_dir:
+                basename_without_ext, ext = input_basename.split(".", 1)
+                input_basename = basename_without_ext + "_standard." + ext
+            output_pkl_filename = os.path.join(output_pkl, input_basename)
+        change_single_pkl(input_file, output_pkl_filename, is_debug_print)
+
+    e_time = time.perf_counter()
+    total_e_time = e_time - s_time
+    print_str = f"process for {input_pkl} total exec time: {total_e_time}s"
+    print(print_str)
 
 
 if __name__ == "__main__":
