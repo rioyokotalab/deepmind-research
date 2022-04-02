@@ -412,6 +412,7 @@ class EvalExperiment:
 
   def evaluate(self, global_step, **unused_args):
     """See base class."""
+    print("in evaluate func")
 
     global_step = np.array(helpers.get_first(global_step))
     scalars = jax.device_get(self._eval_epoch(**self._evaluation_config))

@@ -106,6 +106,9 @@ def eval_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
     or eval_experiment).
     config: the experiment config.
   """
+  logging.info("start eval loop")
+  experiment = experiment_class(**config)
+  logging.info(config)
   experiment = experiment_class(**config)
   last_evaluated_step = -1
   while True:
@@ -113,6 +116,7 @@ def eval_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
     if checkpoint_data is None:
       logging.info('No checkpoint found. Waiting for 10s.')
       time.sleep(10)
+      break
       continue
     step, _ = checkpoint_data
     if step <= last_evaluated_step:
@@ -131,6 +135,7 @@ def eval_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
 
 
 def main(_):
+  logging.info("start main")
   if FLAGS.worker_tpu_driver:
     jax.config.update('jax_xla_backend', 'tpu_driver')
     jax.config.update('jax_backend_target', FLAGS.worker_tpu_driver)
@@ -140,6 +145,7 @@ def main(_):
     experiment_class = byol_experiment.ByolExperiment
     config = byol_config.get_config(FLAGS.pretrain_epochs, FLAGS.batch_size)
   elif FLAGS.experiment_mode == 'linear-eval':
+    logging.info("start linear mode")
     experiment_class = eval_experiment.EvalExperiment
     config = eval_config.get_config(f'{FLAGS.checkpoint_root}/pretrain.pkl',
                                     FLAGS.batch_size)
