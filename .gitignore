@@ -9,6 +9,7 @@ result/
 results/
 results_root/
 pretrain_models/
+wandb/
 
 # pyenv
 .python-version
