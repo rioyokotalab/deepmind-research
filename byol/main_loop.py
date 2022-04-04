@@ -62,13 +62,18 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
       or eval_experiment).
       config: the experiment config.
     """
+    experiment = experiment_class(**config)
+
+    config["wandb_config"] = dict(
+        wandb_runname=FLAGS.wandb_runname, wandb_project=FLAGS.wandb_project
+    )
     wandb.init(
         project=config["wandb_config"]["wandb_project"],
         entity="tomo",
         name=config["wandb_config"]["wandb_runname"],
         config=config,
     )
-    experiment = experiment_class(**config)
+
     rng = jax.random.PRNGKey(0)
     step = 0
 
@@ -170,9 +175,6 @@ def main(_):
     config["checkpointing_config"][
         "checkpoint_dir"
     ] = FLAGS.checkpoint_root  # pytype: disable=unsupported-operands  # dict-kwargs
-    config["wandb_config"] = dict(
-        wandb_runname=FLAGS.wandb_runname, wandb_project=FLAGS.wandb_project
-    )
 
     if FLAGS.worker_mode == "train":
         train_loop(experiment_class, config)
