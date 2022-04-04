@@ -23,6 +23,7 @@ from absl import flags
 from absl import logging
 import jax
 import numpy as np
+import wandb
 
 from byol import byol_experiment
 from byol import eval_experiment
@@ -59,6 +60,9 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
       or eval_experiment).
       config: the experiment config.
     """
+    wandb.init(
+        project="byol_results", entity="tomo", name="pretrain_byol", config=config
+    )
     experiment = experiment_class(**config)
     rng = jax.random.PRNGKey(0)
     step = 0
@@ -92,6 +96,8 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
             if current_time - last_logging > FLAGS.log_tensors_interval:
                 logging.info("Step %d: %s", step, scalars)
                 last_logging = current_time
+        wandb.log(scalars, commit=False)
+        wandb.log({"train/iters": step})
         step += 1
     logging.info("Saving final checkpoint")
     logging.info("Step %d: %s", step, scalars)
