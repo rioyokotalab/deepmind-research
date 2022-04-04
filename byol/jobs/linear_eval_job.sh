@@ -29,8 +29,8 @@ module load cudnn/cuda-11.2/8.1
 # ======== Scripts ========
 
 # date_str=$(date '+%Y%m%d_%H%M%S')
-# out_put="$git_root/tmp/byol_checkpoints/$date_str"
-out_put="$git_root/tmp/byol_checkpoints/test"
+# out_put="$git_root/byol/tmp/byol_checkpoints/$date_str"
+out_put="$git_root/byol/tmp/byol_checkpoints/test"
 mkdir -p "$out_put" 
 
 # python main_loop.py \
