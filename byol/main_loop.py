@@ -40,6 +40,8 @@ flags.DEFINE_integer("batch_size", 4096, "Total batch size")
 flags.DEFINE_string(
     "checkpoint_root", "/tmp/byol", "The directory to save checkpoints to."
 )
+flags.DEFINE_string("wandb_runname", "pretrain_byol", "wandb run name")
+flags.DEFINE_string("wandb_project", "byol_results", "wandb project name")
 flags.DEFINE_integer("log_tensors_interval", 60, "Log tensors every n seconds.")
 
 FLAGS = flags.FLAGS
@@ -61,7 +63,10 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
       config: the experiment config.
     """
     wandb.init(
-        project="byol_results", entity="tomo", name="pretrain_byol", config=config
+        project=config["wandb_config"]["wandb_project"],
+        entity="tomo",
+        name=config["wandb_config"]["wandb_runname"],
+        config=config,
     )
     experiment = experiment_class(**config)
     rng = jax.random.PRNGKey(0)
@@ -77,6 +82,7 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
             step, rng = checkpoint_data
 
     local_device_count = jax.local_device_count()
+    max_steps = config["max_steps"]
     while step < config["max_steps"]:
         step_rng, rng = tuple(jax.random.split(rng))
         # Broadcast the random seeds across the devices
@@ -94,7 +100,7 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
             experiment.save_checkpoint(step, rng)
             current_time = time.time()
             if current_time - last_logging > FLAGS.log_tensors_interval:
-                logging.info("Step %d: %s", step, scalars)
+                logging.info("Step [%d / %d]: %s", step, max_steps, scalars)
                 last_logging = current_time
         wandb.log(scalars, commit=False)
         wandb.log({"train/iters": step})
@@ -164,6 +170,9 @@ def main(_):
     config["checkpointing_config"][
         "checkpoint_dir"
     ] = FLAGS.checkpoint_root  # pytype: disable=unsupported-operands  # dict-kwargs
+    config["wandb_config"] = dict(
+        wandb_runname=FLAGS.wandb_runname, wandb_project=FLAGS.wandb_project
+    )
 
     if FLAGS.worker_mode == "train":
         train_loop(experiment_class, config)
