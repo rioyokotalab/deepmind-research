@@ -17,6 +17,8 @@
 
 import time
 from typing import Any, Mapping, Text, Type, Union
+from collections import defaultdict
+import os
 
 from absl import app
 from absl import flags
@@ -52,6 +54,44 @@ Experiment = Union[
 ]
 
 
+def to_numpy_data(data):
+    type_data = type(data)
+    is_dict = type_data == dict or type_data == defaultdict
+    is_list = type_data == list or type_data == np.ndarray or type_data == tuple
+    if is_dict:
+        tmp = {}
+        for key, val in data.items():
+            tmp[key] = to_numpy_data(val)
+        return tmp
+    if is_list:
+        tmp = []
+        for val in data:
+            tmp.append(to_numpy_data(val))
+        return np.array(tmp)
+    return data
+
+
+def save_csv(data, filename="log.csv"):
+    if data is None:
+        return
+    data = to_numpy_data(data)
+    type_data = type(data)
+    is_dict = type_data == dict
+    is_list = type_data == np.ndarray
+    if not is_dict and not is_list and type_data != tuple:
+        raise TypeError(f"not supported data type {type_data}")
+    if is_dict:
+        value_list = list(data.values())
+        if len(value_list) <= 0:
+            return
+        data = [np.append(np.array(key), val).tolist() for key, val in data.items()]
+    elif is_list:
+        data = data.tolist()
+    with open(filename, mode="a", encoding="utf_8") as f:
+        for val in data:
+            np.savetxt(f, [val], delimiter=",", fmt="%s")
+
+
 def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
     """The main training loop.
 
@@ -73,6 +113,8 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
         name=config["wandb_config"]["wandb_runname"],
         config=config,
     )
+    root_dir = config["checkpointing_config"]["checkpoint_dir"]
+    csv_dir = os.path.join(root_dir, "loss_csvs")
 
     rng = jax.random.PRNGKey(0)
     step = 0
@@ -88,6 +130,7 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
 
     local_device_count = jax.local_device_count()
     max_steps = config["max_steps"]
+    digit = len(str(max_steps))
     while step < config["max_steps"]:
         step_rng, rng = tuple(jax.random.split(rng))
         # Broadcast the random seeds across the devices
@@ -107,6 +150,14 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
             if current_time - last_logging > FLAGS.log_tensors_interval:
                 logging.info("Step [%d / %d]: %s", step, max_steps, scalars)
                 last_logging = current_time
+        try:
+            step_str = str(step).zfill(digit)
+            file_name = f"losses_{step_str}.csv"
+            save_csv(scalars, os.path.join(csv_dir, file_name))
+        except OSError as ose:
+            print("oserror", ose)
+        except Exception as e:
+            print("except", e)
         wandb.log(scalars, commit=False)
         wandb.log({"train/iters": step})
         step += 1
