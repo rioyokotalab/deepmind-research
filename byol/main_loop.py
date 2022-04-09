@@ -25,7 +25,8 @@ from absl import flags
 from absl import logging
 import jax
 import numpy as np
-import wandb
+
+# import wandb
 
 from byol import byol_experiment
 from byol import eval_experiment
@@ -107,14 +108,16 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
     config["wandb_config"] = dict(
         wandb_runname=FLAGS.wandb_runname, wandb_project=FLAGS.wandb_project
     )
-    wandb.init(
-        project=config["wandb_config"]["wandb_project"],
-        entity="tomo",
-        name=config["wandb_config"]["wandb_runname"],
-        config=config,
-    )
+    # wandb.init(
+    #     project=config["wandb_config"]["wandb_project"],
+    #     entity="tomo",
+    #     name=config["wandb_config"]["wandb_runname"],
+    #     config=config,
+    # )
     root_dir = config["checkpointing_config"]["checkpoint_dir"]
     csv_dir = os.path.join(root_dir, "loss_csvs")
+    logging.info(f"makedirs: {csv_dir}")
+    os.makedirs(csv_dir, exist_ok=True)
 
     rng = jax.random.PRNGKey(0)
     step = 0
@@ -130,7 +133,8 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
 
     local_device_count = jax.local_device_count()
     max_steps = config["max_steps"]
-    digit = len(str(max_steps))
+    file_name = "losses_pretrain.csv"
+    csv_filename = os.path.join(csv_dir, file_name)
     while step < config["max_steps"]:
         step_rng, rng = tuple(jax.random.split(rng))
         # Broadcast the random seeds across the devices
@@ -151,15 +155,14 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
                 logging.info("Step [%d / %d]: %s", step, max_steps, scalars)
                 last_logging = current_time
         try:
-            step_str = str(step).zfill(digit)
-            file_name = f"losses_{step_str}.csv"
-            save_csv(scalars, os.path.join(csv_dir, file_name))
+            scalars["step"] = step
+            save_csv(scalars, csv_filename)
         except OSError as ose:
             print("oserror", ose)
         except Exception as e:
             print("except", e)
-        wandb.log(scalars, commit=False)
-        wandb.log({"train/iters": step})
+        # wandb.log(scalars, commit=False)
+        # wandb.log({"train/iters": step})
         step += 1
     logging.info("Saving final checkpoint")
     logging.info("Step %d: %s", step, scalars)
