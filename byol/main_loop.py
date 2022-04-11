@@ -25,6 +25,7 @@ from absl import flags
 from absl import logging
 import jax
 import numpy as np
+import tensorflow as tf
 
 # import wandb
 
@@ -115,9 +116,13 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
     #     config=config,
     # )
     root_dir = config["checkpointing_config"]["checkpoint_dir"]
-    csv_dir = os.path.join(root_dir, "loss_csvs")
-    logging.info(f"makedirs: {csv_dir}")
-    os.makedirs(csv_dir, exist_ok=True)
+    tensor_board_log_dir = os.path.join(root_dir, "tf_logs")
+    train_summary_writer = tf.summary.create_file_writer(tensor_board_log_dir)
+    logging.info(f"makedirs: {tensor_board_log_dir}")
+    os.makedirs(tensor_board_log_dir, exist_ok=True)
+    # csv_dir = os.path.join(root_dir, "loss_csvs")
+    # logging.info(f"makedirs: {csv_dir}")
+    # os.makedirs(csv_dir, exist_ok=True)
 
     rng = jax.random.PRNGKey(0)
     step = 0
@@ -133,8 +138,8 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
 
     local_device_count = jax.local_device_count()
     max_steps = config["max_steps"]
-    file_name = "losses_pretrain.csv"
-    csv_filename = os.path.join(csv_dir, file_name)
+    # file_name = "losses_pretrain.csv"
+    # csv_filename = os.path.join(csv_dir, file_name)
     while step < config["max_steps"]:
         step_rng, rng = tuple(jax.random.split(rng))
         # Broadcast the random seeds across the devices
@@ -154,13 +159,16 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
             if current_time - last_logging > FLAGS.log_tensors_interval:
                 logging.info("Step [%d / %d]: %s", step, max_steps, scalars)
                 last_logging = current_time
-        try:
-            scalars["step"] = step
-            save_csv(scalars, csv_filename)
-        except OSError as ose:
-            print("oserror", ose)
-        except Exception as e:
-            print("except", e)
+        with train_summary_writer.as_default():
+            for k, v in scalars.items():
+                tf.summary.scalar(k, v, step=step)
+        # try:
+        #     scalars["step"] = step
+        #     save_csv(scalars, csv_filename)
+        # except OSError as ose:
+        #     print("oserror", ose)
+        # except Exception as e:
+        #     print("except", e)
         # wandb.log(scalars, commit=False)
         # wandb.log({"train/iters": step})
         step += 1
