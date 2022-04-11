@@ -17,7 +17,7 @@
 
 import time
 from typing import Any, Mapping, Text, Type, Union
-from collections import defaultdict
+# from collections import defaultdict
 import os
 
 from absl import app
@@ -26,8 +26,6 @@ from absl import logging
 import jax
 import numpy as np
 import tensorflow as tf
-
-# import wandb
 
 from byol import byol_experiment
 from byol import eval_experiment
@@ -56,44 +54,6 @@ Experiment = Union[
 ]
 
 
-def to_numpy_data(data):
-    type_data = type(data)
-    is_dict = type_data == dict or type_data == defaultdict
-    is_list = type_data == list or type_data == np.ndarray or type_data == tuple
-    if is_dict:
-        tmp = {}
-        for key, val in data.items():
-            tmp[key] = to_numpy_data(val)
-        return tmp
-    if is_list:
-        tmp = []
-        for val in data:
-            tmp.append(to_numpy_data(val))
-        return np.array(tmp)
-    return data
-
-
-def save_csv(data, filename="log.csv"):
-    if data is None:
-        return
-    data = to_numpy_data(data)
-    type_data = type(data)
-    is_dict = type_data == dict
-    is_list = type_data == np.ndarray
-    if not is_dict and not is_list and type_data != tuple:
-        raise TypeError(f"not supported data type {type_data}")
-    if is_dict:
-        value_list = list(data.values())
-        if len(value_list) <= 0:
-            return
-        data = [np.append(np.array(key), val).tolist() for key, val in data.items()]
-    elif is_list:
-        data = data.tolist()
-    with open(filename, mode="a", encoding="utf_8") as f:
-        for val in data:
-            np.savetxt(f, [val], delimiter=",", fmt="%s")
-
-
 def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
     """The main training loop.
 
@@ -106,28 +66,17 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
     """
     experiment = experiment_class(**config)
 
-    config["wandb_config"] = dict(
-        wandb_runname=FLAGS.wandb_runname, wandb_project=FLAGS.wandb_project
-    )
-    # wandb.init(
-    #     project=config["wandb_config"]["wandb_project"],
-    #     entity="tomo",
-    #     name=config["wandb_config"]["wandb_runname"],
-    #     config=config,
-    # )
-    root_dir = config["checkpointing_config"]["checkpoint_dir"]
-    tensor_board_log_dir = os.path.join(root_dir, "tf_logs")
-    train_summary_writer = tf.summary.create_file_writer(tensor_board_log_dir)
-    logging.info(f"makedirs: {tensor_board_log_dir}")
-    os.makedirs(tensor_board_log_dir, exist_ok=True)
-    # csv_dir = os.path.join(root_dir, "loss_csvs")
-    # logging.info(f"makedirs: {csv_dir}")
-    # os.makedirs(csv_dir, exist_ok=True)
-
     rng = jax.random.PRNGKey(0)
     step = 0
 
     host_id = jax.host_id()
+
+    root_dir = config["checkpointing_config"]["checkpoint_dir"]
+    tensor_board_log_dir = os.path.join(root_dir, f"train_tf_logs/{host_id}")
+    train_summary_writer = tf.summary.create_file_writer(tensor_board_log_dir)
+    logging.info(f"makedirs: {tensor_board_log_dir}")
+    os.makedirs(tensor_board_log_dir, exist_ok=True)
+
     last_logging = time.time()
     if config["checkpointing_config"]["use_checkpointing"]:
         checkpoint_data = experiment.load_checkpoint()
@@ -138,8 +87,6 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
 
     local_device_count = jax.local_device_count()
     max_steps = config["max_steps"]
-    # file_name = "losses_pretrain.csv"
-    # csv_filename = os.path.join(csv_dir, file_name)
     while step < config["max_steps"]:
         step_rng, rng = tuple(jax.random.split(rng))
         # Broadcast the random seeds across the devices
@@ -162,15 +109,6 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
         with train_summary_writer.as_default():
             for k, v in scalars.items():
                 tf.summary.scalar(k, v, step=step)
-        # try:
-        #     scalars["step"] = step
-        #     save_csv(scalars, csv_filename)
-        # except OSError as ose:
-        #     print("oserror", ose)
-        # except Exception as e:
-        #     print("except", e)
-        # wandb.log(scalars, commit=False)
-        # wandb.log({"train/iters": step})
         step += 1
     logging.info("Saving final checkpoint")
     logging.info("Step %d: %s", step, scalars)
@@ -191,8 +129,15 @@ def eval_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
     logging.info("start eval loop")
     experiment = experiment_class(**config)
     logging.info(config)
-    experiment = experiment_class(**config)
     last_evaluated_step = -1
+
+    host_id = jax.host_id()
+    root_dir = config["checkpointing_config"]["checkpoint_dir"]
+    tensor_board_log_dir = os.path.join(root_dir, f"test_tf_logs/{host_id}")
+    test_summary_writer = tf.summary.create_file_writer(tensor_board_log_dir)
+    logging.info(f"makedirs: {tensor_board_log_dir}")
+    os.makedirs(tensor_board_log_dir, exist_ok=True)
+
     while True:
         checkpoint_data = experiment.load_checkpoint()
         if checkpoint_data is None:
@@ -211,6 +156,9 @@ def eval_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
         scalars = experiment.evaluate(global_step=step_device)
         if host_id == 0:  # Only perform logging in one host.
             logging.info("Evaluation at step %d: %s", step, scalars)
+        with test_summary_writer.as_default():
+            for k, v in scalars.items():
+                tf.summary.scalar(k, v, step=step)
         last_evaluated_step = step
         if last_evaluated_step >= config["max_steps"]:
             return
