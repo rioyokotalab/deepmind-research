@@ -17,6 +17,7 @@
 
 import time
 from typing import Any, Mapping, Text, Type, Union
+
 # from collections import defaultdict
 import os
 
@@ -104,8 +105,9 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
             experiment.save_checkpoint(step, rng)
             current_time = time.time()
             if current_time - last_logging > FLAGS.log_tensors_interval:
-                logging.info("Step [%d / %d]: %s", step, max_steps, scalars)
+                logging.info("disp Step [%d / %d]: %s", step, max_steps, scalars)
                 last_logging = current_time
+        logging.info("Step [%d / %d]: %s", step, max_steps, scalars)
         with train_summary_writer.as_default():
             for k, v in scalars.items():
                 tf.summary.scalar(k, v, step=step)
