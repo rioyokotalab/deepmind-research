@@ -27,6 +27,7 @@ from absl import logging
 import jax
 import numpy as np
 import tensorflow as tf
+import wandb
 
 from byol import byol_experiment
 from byol import eval_experiment
@@ -65,6 +66,13 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
       or eval_experiment).
       config: the experiment config.
     """
+    wandb.init(
+        project=config["wandb_config"]["wandb_project"],
+        entity="tomo",
+        name=config["wandb_config"]["wandb_runname"],
+        config=config,
+    )
+
     experiment = experiment_class(**config)
 
     rng = jax.random.PRNGKey(0)
@@ -72,11 +80,11 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
 
     host_id = jax.host_id()
 
-    root_dir = config["checkpointing_config"]["checkpoint_dir"]
-    tensor_board_log_dir = os.path.join(root_dir, f"train_tf_logs/{host_id}")
-    train_summary_writer = tf.summary.create_file_writer(tensor_board_log_dir)
-    logging.info(f"makedirs: {tensor_board_log_dir}")
-    os.makedirs(tensor_board_log_dir, exist_ok=True)
+    # root_dir = config["checkpointing_config"]["checkpoint_dir"]
+    # tensor_board_log_dir = os.path.join(root_dir, f"train_tf_logs/{host_id}")
+    # train_summary_writer = tf.summary.create_file_writer(tensor_board_log_dir)
+    # logging.info(f"makedirs: {tensor_board_log_dir}")
+    # os.makedirs(tensor_board_log_dir, exist_ok=True)
 
     last_logging = time.time()
     if config["checkpointing_config"]["use_checkpointing"]:
@@ -108,9 +116,11 @@ def train_loop(experiment_class: Experiment, config: Mapping[Text, Any]):
                 logging.info("disp Step [%d / %d]: %s", step, max_steps, scalars)
                 last_logging = current_time
         logging.info("Step [%d / %d]: %s", step, max_steps, scalars)
-        with train_summary_writer.as_default():
-            for k, v in scalars.items():
-                tf.summary.scalar(k, v, step=step)
+        wandb.log(scalars, commit=False)
+        wandb.log({"train/step": step})
+        # with train_summary_writer.as_default():
+        #     for k, v in scalars.items():
+        #         tf.summary.scalar(k, v, step=step)
         step += 1
     logging.info("Saving final checkpoint")
     logging.info("Step %d: %s", step, scalars)
@@ -172,6 +182,7 @@ def main(_):
         jax.config.update("jax_xla_backend", "tpu_driver")
         jax.config.update("jax_backend_target", FLAGS.worker_tpu_driver)
         logging.info("Backend: %s %r", FLAGS.worker_tpu_driver, jax.devices())
+    logging.info("Devices: %r", jax.devices())
 
     if FLAGS.experiment_mode == "pretrain":
         experiment_class = byol_experiment.ByolExperiment
@@ -188,6 +199,9 @@ def main(_):
         "checkpoint_dir"
     ] = FLAGS.checkpoint_root  # pytype: disable=unsupported-operands  # dict-kwargs
 
+    config["wandb_config"] = dict(
+        wandb_runname=FLAGS.wandb_runname, wandb_project=FLAGS.wandb_project
+    )
     if FLAGS.worker_mode == "train":
         train_loop(experiment_class, config)
     elif FLAGS.worker_mode == "eval":
